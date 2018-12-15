@@ -30,6 +30,9 @@
   name = "github.com/docker/distribution"
   revision = "f4118485915abb8b163442717326597908eee6aa"
 
+[[constraint]]
+  name = "k8s.io/client-go"
+  version = "10.0.0"
 
 [[override]]
   name = "github.com/Azure/azure-sdk-for-go"

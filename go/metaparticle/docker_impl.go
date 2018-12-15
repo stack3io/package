@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -19,6 +20,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/cliconfig/configfile"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -55,6 +57,32 @@ func getAuthStringFromEnv() (string, error) {
 		Username: os.Getenv("MP_REGISTRY_USERNAME"),
 		Password: os.Getenv("MP_REGISTRY_PASSWORD"),
 	}
+	if authConfig.Username != "" {
+		encodedJSON, err := json.Marshal(authConfig)
+		if err != nil {
+
+			return "", err
+		}
+		return base64.URLEncoding.EncodeToString(encodedJSON), nil
+	}
+
+	// credentials not found in environment variables, try ~/.docker/config.json
+	file, err := os.Open(filepath.Join(homeDir(), ".docker", "config.json"))
+	if err != nil {
+		return "", err
+	}
+	cf := &configfile.ConfigFile{}
+	err = cf.LoadFromReader(file)
+	if err != nil {
+		return "", err
+	}
+
+	// try the first auth config only
+	for _, ac := range cf.AuthConfigs {
+		authConfig = ac
+		break
+	}
+
 	encodedJSON, err := json.Marshal(authConfig)
 	if err != nil {
 		return "", err
@@ -119,11 +147,14 @@ func createTarGz(dir string) (string, error) {
 				return errors.Wrap(err, "Error creating a file header")
 			}
 
+			// update the name to correctly reflect the desired destination when untaring
+			header.Name = strings.TrimPrefix(strings.Replace(filePath, dir, "", -1), string(filepath.Separator))
+
 			if err := tw.WriteHeader(header); err != nil {
 				return errors.Wrap(err, "Error writing file header")
 			}
 
-			if info.IsDir() {
+			if !info.Mode().IsRegular() { //nothing more to do for non-regular
 				return nil
 			}
 

@@ -9,6 +9,17 @@ import (
 	"strings"
 )
 
+// DefaultDockerFile is provided as a default Dockerfile is none is provided
+const DefaultDockerFile = `FROM golang:1.9 as builder
+WORKDIR /go/src/app
+COPY . .
+RUN go get -u github.com/golang/dep/cmd/dep && dep init && CGO_ENABLED=0 GOOS=linux go-wrapper install
+FROM alpine:3.7
+RUN apk add --no-cache --update ca-certificates
+COPY --from=builder /go/bin/app .
+CMD ["./app"]
+`
+
 // Runtime represents a place where to run the containers (Docker, rkt, etc)
 type Runtime struct {
 	// must return an integer >= 1
@@ -45,6 +56,10 @@ type Package struct {
 	Builder string
 	// Whether to publish the built image to the remote repository
 	Publish bool
+
+	// Dockerfile is the file provided to docker to build the image
+	// A default will be provided if not provided
+	Dockerfile string
 }
 
 // Executor implementors are container platforms where the containers can be deployed (e.g. Azure, GCP)
@@ -84,6 +99,8 @@ func executorFromRuntime(r *Runtime) (Executor, error) {
 		return NewACIExecutor()
 	case "metaparticle":
 		return &MetaparticleExecutor{}, nil
+	case "kubernetes":
+		return NewKubernetesImpl()
 	default:
 		return nil, fmt.Errorf("Unknown executor: %s", r.Executor)
 	}
@@ -101,16 +118,11 @@ func builderFromPackage(pkg *Package) (Builder, error) {
 	}
 }
 
-func writeDockerfile(name string) error {
-	contents := `FROM golang:1.9 as builder
-	WORKDIR /go/src/app
-	COPY . .
-	RUN go get -u github.com/golang/dep/cmd/dep && dep init && CGO_ENABLED=0 GOOS=linux go-wrapper install 
-	FROM alpine:3.7
-	RUN apk add --no-cache --update ca-certificates 
-	COPY --from=builder /go/bin/app .
-	CMD ["./app"]
-`
+func writeDockerfile(name string, contents string) error {
+	if contents == "" {
+		contents = DefaultDockerFile
+	}
+
 	return ioutil.WriteFile("Dockerfile", []byte(contents), 0644)
 }
 
@@ -139,7 +151,7 @@ func Containerize(r *Runtime, p *Package, f func()) {
 		if len(p.Repository) != 0 {
 			image = p.Repository + "/" + image
 		}
-		err = writeDockerfile("metaparticle-package")
+		err = writeDockerfile("metaparticle-package", p.Dockerfile)
 		if err != nil {
 			panic(fmt.Sprintf("Could not write Dockerfile: %v", err))
 		}

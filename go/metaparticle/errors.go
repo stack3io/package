@@ -17,4 +17,5 @@ var (
 	errNilRuntimeConfig           = errors.New("Runtime config must not be nil")
 	errEmptyContextDirectory      = errors.New("A context directory must be specified")
 	errInexistentContextDirectory = errors.New("Context directory does not exist")
+	errNoRunningContainer         = errors.New("There is no running container")
 )
